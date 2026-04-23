@@ -1,0 +1,343 @@
+"""
+╔══════════════════════════════════════════════════╗
+║   TOPIC DIGITAL DIARY — PART 3 of 3             ║
+║   Contributor: Collaborator 3                   ║
+║   Role: Search, Filter & Export Features        ║
+║                                                  ║
+║   This file adds:                               ║
+║   - Keyword search across all entries           ║
+║   - Filter entries by mood                      ║
+║   - Export single or all entries to .txt        ║
+║   - Search results popup panel                  ║
+╚══════════════════════════════════════════════════╝
+
+  Usage:
+    Call attach_search_panel(app) after DiaryApp is built.
+    Already called automatically via part1_app_shell._load_editor
+    if you add one line at the bottom of part1_app_shell._load_editor:
+
+        from part3_search import attach_search_panel
+        attach_search_panel(self)
+
+  OR just run part1_app_shell.py with all 3 files present.
+"""
+
+import tkinter as tk
+from tkinter import messagebox, filedialog
+from datetime import datetime
+
+from part1_app_shell import THEME, FONTS, load_entries, save_entries
+
+
+# ─────────────────────────────────────────────────
+#  PUBLIC API — called by Part 1
+# ─────────────────────────────────────────────────
+def attach_search_panel(app):
+    """
+    Inject the SearchPanel widget into app's header bar area.
+    Call this once from part1_app_shell after editor is loaded.
+    """
+    panel = SearchPanel(app)
+    # Add export button to header (Part 1 already built the header)
+    _inject_header_buttons(app, panel)
+
+
+# ─────────────────────────────────────────────────
+#  HEADER BUTTON INJECTION
+# ─────────────────────────────────────────────────
+def _inject_header_buttons(app, panel):
+    """Add Search and Export buttons into the existing header bar."""
+    # Find the header frame (first child of app that is a Frame)
+    for widget in app.winfo_children():
+        if isinstance(widget, tk.Frame) and widget.cget("height") == 60:
+            header = widget
+            break
+    else:
+        return  # header not found
+
+    # Export button
+    tk.Button(
+        header,
+        text="📤  Export",
+        bg=THEME["card"], fg=THEME["text"],
+        font=FONTS["btn"], relief="flat", cursor="hand2",
+        activebackground=THEME["card_hover"],
+        activeforeground=THEME["text"],
+        padx=10, pady=6,
+        command=lambda: ExportDialog(app)
+    ).pack(side="right", padx=6, pady=10)
+
+    # Search button
+    tk.Button(
+        header,
+        text="🔍  Search",
+        bg=THEME["card"], fg=THEME["text"],
+        font=FONTS["btn"], relief="flat", cursor="hand2",
+        activebackground=THEME["card_hover"],
+        activeforeground=THEME["text"],
+        padx=10, pady=6,
+        command=lambda: SearchDialog(app)
+    ).pack(side="right", padx=0, pady=10)
+
+
+# ─────────────────────────────────────────────────
+#  SEARCH DIALOG
+# ─────────────────────────────────────────────────
+class SearchPanel:
+    """Placeholder namespace — actual UI is in SearchDialog."""
+    def __init__(self, app):
+        self.app = app
+
+
+class SearchDialog(tk.Toplevel):
+    """
+    Modal search window.
+    Searches topics AND body text across all saved entries.
+    Supports filtering by mood.
+    """
+
+    MOODS_ALL = ["All Moods", "😊 Happy", "😔 Sad", "😤 Frustrated",
+                 "😌 Calm", "🤩 Excited", "😰 Anxious", "😴 Tired",
+                 "🥰 Grateful", "😐 Neutral", "💪 Motivated"]
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.app = app
+        self.title("🔍 Search Entries")
+        self.geometry("640x520")
+        self.configure(bg=THEME["bg"])
+        self.resizable(False, False)
+        self.grab_set()  # modal
+        self._build_ui()
+
+    def _build_ui(self):
+        # ── Search bar row ────────────────────────
+        bar = tk.Frame(self, bg=THEME["sidebar"], pady=10)
+        bar.pack(fill="x")
+
+        tk.Label(bar, text="Keyword:", bg=THEME["sidebar"],
+                 fg=THEME["subtext"], font=FONTS["label"]).pack(side="left", padx=(16, 4))
+
+        self.query_var = tk.StringVar()
+        entry = tk.Entry(bar, textvariable=self.query_var,
+                         bg=THEME["card"], fg=THEME["text"],
+                         insertbackground=THEME["accent"],
+                         relief="flat", font=FONTS["label"], width=22)
+        entry.pack(side="left", ipady=5, padx=(0, 12))
+        entry.focus()
+
+        tk.Label(bar, text="Mood:", bg=THEME["sidebar"],
+                 fg=THEME["subtext"], font=FONTS["label"]).pack(side="left", padx=(0, 4))
+
+        self.mood_filter = tk.StringVar(value="All Moods")
+        mood_menu = tk.OptionMenu(bar, self.mood_filter, *self.MOODS_ALL)
+        mood_menu.configure(bg=THEME["card"], fg=THEME["text"],
+                            relief="flat", font=FONTS["label"],
+                            activebackground=THEME["card_hover"],
+                            activeforeground=THEME["text"],
+                            highlightthickness=0, bd=0)
+        mood_menu["menu"].configure(bg=THEME["card"], fg=THEME["text"], font=FONTS["label"])
+        mood_menu.pack(side="left", padx=(0, 12))
+
+        tk.Button(bar, text="Search", bg=THEME["accent"], fg="white",
+                  font=FONTS["btn"], relief="flat", cursor="hand2",
+                  activebackground="#c73550", padx=10,
+                  command=self._run_search).pack(side="left")
+
+        # Bind Enter key
+        self.bind("<Return>", lambda e: self._run_search())
+
+        # ── Results area ──────────────────────────
+        tk.Label(self, text="Results", bg=THEME["bg"],
+                 fg=THEME["subtext"], font=FONTS["small"]).pack(anchor="w", padx=16, pady=(10, 2))
+        tk.Frame(self, bg=THEME["border"], height=1).pack(fill="x", padx=12)
+
+        results_container = tk.Frame(self, bg=THEME["bg"])
+        results_container.pack(fill="both", expand=True, padx=12, pady=8)
+
+        scroll = tk.Scrollbar(results_container)
+        scroll.pack(side="right", fill="y")
+
+        self.results_box = tk.Listbox(
+            results_container,
+            bg=THEME["entry_bg"], fg=THEME["text"],
+            selectbackground=THEME["accent"],
+            selectforeground="white",
+            font=FONTS["label"],
+            relief="flat", bd=0,
+            yscrollcommand=scroll.set
+        )
+        self.results_box.pack(fill="both", expand=True)
+        scroll.configure(command=self.results_box.yview)
+        self.results_box.bind("<Double-Button-1>", self._open_result)
+
+        # Hint label
+        tk.Label(self, text="Double-click a result to open it",
+                 bg=THEME["bg"], fg=THEME["subtext"],
+                 font=FONTS["small"]).pack(pady=(0, 8))
+
+        # Internal: map listbox index → entry key
+        self._result_keys = []
+
+    def _run_search(self):
+        query      = self.query_var.get().strip().lower()
+        mood_filter = self.mood_filter.get()
+
+        self.results_box.delete(0, "end")
+        self._result_keys.clear()
+
+        entries = self.app.entries
+        matched = []
+
+        for key, entry in entries.items():
+            # Mood filter
+            if mood_filter != "All Moods" and entry.get("mood") != mood_filter:
+                continue
+            # Keyword filter (search topic + body)
+            if query:
+                haystack = (
+                    entry.get("topic", "").lower() + " " +
+                    entry.get("body", "").lower()
+                )
+                if query not in haystack:
+                    continue
+            matched.append((key, entry))
+
+        if not matched:
+            self.results_box.insert("end", "  No results found.")
+            return
+
+        for key, entry in sorted(matched, key=lambda x: x[0], reverse=True):
+            snippet   = entry.get("body", "").replace("\n", " ")[:55]
+            mood_icon = entry.get("mood", "")[:2]
+            display   = f"  {mood_icon}  {key}  —  {entry.get('topic','Untitled')}  |  {snippet}…"
+            self.results_box.insert("end", display)
+            self._result_keys.append(key)
+
+    def _open_result(self, event):
+        sel = self.results_box.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        if idx >= len(self._result_keys):
+            return
+        key = self._result_keys[idx]
+        self.app._open_entry(key)
+        self.destroy()
+
+
+# ─────────────────────────────────────────────────
+#  EXPORT DIALOG
+# ─────────────────────────────────────────────────
+class ExportDialog(tk.Toplevel):
+    """
+    Export one or all diary entries to a plain .txt file.
+    """
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.app = app
+        self.title("📤 Export Entries")
+        self.geometry("420x320")
+        self.configure(bg=THEME["bg"])
+        self.resizable(False, False)
+        self.grab_set()
+        self._build_ui()
+
+    def _build_ui(self):
+        tk.Label(self, text="Export Diary",
+                 bg=THEME["bg"], fg=THEME["accent"],
+                 font=FONTS["heading"]).pack(pady=(20, 4))
+
+        tk.Label(self, text="Choose what to export:",
+                 bg=THEME["bg"], fg=THEME["subtext"],
+                 font=FONTS["label"]).pack(pady=(0, 16))
+
+        # Export ALL button
+        tk.Button(
+            self, text="📄  Export ALL Entries",
+            bg=THEME["card"], fg=THEME["text"],
+            font=FONTS["btn"], relief="flat", cursor="hand2",
+            activebackground=THEME["card_hover"],
+            padx=14, pady=8,
+            command=self._export_all
+        ).pack(pady=6, ipadx=10)
+
+        # Export CURRENT button
+        tk.Button(
+            self, text="✏️  Export Current Entry Only",
+            bg=THEME["card"], fg=THEME["text"],
+            font=FONTS["btn"], relief="flat", cursor="hand2",
+            activebackground=THEME["card_hover"],
+            padx=14, pady=8,
+            command=self._export_current
+        ).pack(pady=6, ipadx=10)
+
+        tk.Frame(self, bg=THEME["border"], height=1).pack(fill="x", padx=24, pady=16)
+
+        tk.Label(self, text="Files are saved as plain .txt",
+                 bg=THEME["bg"], fg=THEME["subtext"],
+                 font=FONTS["small"]).pack()
+
+    def _export_all(self):
+        if not self.app.entries:
+            messagebox.showinfo("No Entries", "Nothing to export yet.")
+            return
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt")],
+            initialfile=f"diary_all_{datetime.now().strftime('%Y%m%d')}.txt",
+            title="Save All Entries"
+        )
+        if not path:
+            return
+
+        lines = []
+        for key in sorted(self.app.entries.keys(), reverse=True):
+            entry = self.app.entries[key]
+            lines += self._format_entry(key, entry)
+            lines.append("\n" + "─" * 60 + "\n")
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+
+        messagebox.showinfo("Exported!", f"All entries saved to:\n{path}")
+        self.destroy()
+
+    def _export_current(self):
+        key = self.app.selected_key.get()
+        if not key or key not in self.app.entries:
+            messagebox.showwarning("No Entry Selected",
+                                   "Open an entry first, then export.")
+            return
+
+        entry = self.app.entries[key]
+        safe_topic = entry.get("topic", "entry").replace(" ", "_")[:30]
+        path = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt")],
+            initialfile=f"diary_{safe_topic}_{key[:10]}.txt",
+            title="Save Entry"
+        )
+        if not path:
+            return
+
+        lines = self._format_entry(key, entry)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+
+        messagebox.showinfo("Exported!", f"Entry saved to:\n{path}")
+        self.destroy()
+
+    @staticmethod
+    def _format_entry(key, entry):
+        """Format a single entry as readable text lines."""
+        return [
+            f"Date  : {key}",
+            f"Topic : {entry.get('topic', 'Untitled')}",
+            f"Mood  : {entry.get('mood', '—')}",
+            f"Saved : {entry.get('saved', '—')}",
+            "",
+            entry.get("body", ""),
+        ]
