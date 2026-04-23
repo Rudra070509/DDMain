@@ -5,7 +5,6 @@ This project includes two implementations:
 
 🖥️ Command-Line Version (CLI) — secure, lightweight, testable
 🎨 GUI Version (Tkinter) — modern desktop interface with enhanced usability
-🔗 Repository
 
 GitHub:
 https://github.com/Rudra070509/DDMain
