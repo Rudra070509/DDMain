@@ -19,6 +19,7 @@ import tkinter as tk
 from tkinter import messagebox
 from datetime import datetime
 
+
 # Re-use shared constants from Part 1
 from part1_app_shell import THEME, FONTS, load_entries, save_entries
 

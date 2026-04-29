@@ -25,6 +25,7 @@ import os
 # Ensure the folder containing this file is always on the Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+
 # ─────────────────────────────────────────────────
 #  THEME CONSTANTS  (shared across all 3 parts)
 # ─────────────────────────────────────────────────
